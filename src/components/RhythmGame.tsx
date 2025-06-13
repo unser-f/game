@@ -34,48 +34,26 @@ const RhythmGame: React.FC = () => {
 
   const gameRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number>();
-  const lastTimeRef = useRef<number>(0);
-  const spawnedNotesRef = useRef<Set<number>>(new Set());
+  const gameStartTimeRef = useRef<number>(0);
 
   const LANES = 4;
-  const NOTE_SPEED = 200;
+  const NOTE_SPEED = 300; // Increased speed for visibility
   const HIT_LINE_Y = 520;
   const HIT_TOLERANCE = 50;
   const GAME_HEIGHT = 600;
 
+  // Simplified note pattern for testing
   const notePattern = [
-    { time: 500, lane: 0 },
-    { time: 1000, lane: 2 },
-    { time: 1500, lane: 1 },
-    { time: 2000, lane: 3 },
-    { time: 2500, lane: 0 },
-    { time: 2800, lane: 1 },
-    { time: 3200, lane: 2 },
-    { time: 3600, lane: 3 },
-    { time: 4000, lane: 1 },
-    { time: 4400, lane: 0 },
-    { time: 4600, lane: 2 },
-    { time: 5000, lane: 3 },
-    { time: 5400, lane: 1 },
-    { time: 5800, lane: 0 },
-    { time: 6200, lane: 2 },
-    { time: 6600, lane: 3 },
-    { time: 7000, lane: 1 },
-    { time: 7200, lane: 0 },
-    { time: 7500, lane: 2 },
-    { time: 7800, lane: 3 },
-    { time: 8200, lane: 1 },
-    { time: 8600, lane: 0 },
-    { time: 9000, lane: 2 },
-    { time: 9400, lane: 3 },
-    { time: 9800, lane: 1 },
-    { time: 10200, lane: 0 },
-    { time: 10600, lane: 2 },
-    { time: 11000, lane: 3 },
-    { time: 11400, lane: 1 },
-    { time: 11800, lane: 0 },
-    { time: 12200, lane: 2 },
-    { time: 12600, lane: 3 },
+    { time: 1000, lane: 0 },
+    { time: 2000, lane: 1 },
+    { time: 3000, lane: 2 },
+    { time: 4000, lane: 3 },
+    { time: 5000, lane: 0 },
+    { time: 6000, lane: 1 },
+    { time: 7000, lane: 2 },
+    { time: 8000, lane: 3 },
+    { time: 9000, lane: 0 },
+    { time: 10000, lane: 1 },
   ];
 
   const spawnNote = useCallback((lane: number) => {
@@ -86,7 +64,10 @@ const RhythmGame: React.FC = () => {
       hit: false,
       missed: false,
     };
-    setNotes(prev => [...prev, newNote]);
+    setNotes(prev => {
+      console.log('Spawning note in lane:', lane, 'Total notes:', prev.length + 1);
+      return [...prev, newNote];
+    });
     setTotalNotes(prev => prev + 1);
   }, []);
 
@@ -149,61 +130,74 @@ const RhythmGame: React.FC = () => {
   }, [hitNote]);
 
   const gameLoop = useCallback((currentTime: number) => {
-    const deltaTime = currentTime - lastTimeRef.current;
-    lastTimeRef.current = currentTime;
+    if (!isPlaying) {
+      animationRef.current = requestAnimationFrame(gameLoop);
+      return;
+    }
 
-    if (isPlaying) {
-      setGameTime(prev => {
-        const newTime = prev + deltaTime;
-        
-        // Check for notes to spawn
-        notePattern.forEach((pattern, index) => {
-          if (pattern.time <= newTime && !spawnedNotesRef.current.has(index)) {
-            spawnNote(pattern.lane);
-            spawnedNotesRef.current.add(index);
+    const elapsedTime = currentTime - gameStartTimeRef.current;
+    setGameTime(elapsedTime);
+
+    // Spawn notes based on pattern
+    notePattern.forEach((pattern) => {
+      if (Math.abs(elapsedTime - pattern.time) < 50) { // 50ms tolerance for spawning
+        // Check if we haven't spawned this note yet
+        setNotes(prev => {
+          const alreadyExists = prev.some(note => 
+            Math.abs(note.y - (-50)) < 10 && note.lane === pattern.lane
+          );
+          if (!alreadyExists) {
+            const newNote: Note = {
+              id: `note-${pattern.time}-${pattern.lane}`,
+              lane: pattern.lane,
+              y: -50,
+              hit: false,
+              missed: false,
+            };
+            console.log('Spawning note at time:', elapsedTime, 'lane:', pattern.lane);
+            setTotalNotes(prev => prev + 1);
+            return [...prev, newNote];
           }
+          return prev;
         });
-
-        return newTime;
-      });
-
-      // Update note positions
-      setNotes(prev => {
-        const updatedNotes = prev.map(note => ({
-          ...note,
-          y: note.y + (NOTE_SPEED * deltaTime) / 1000
-        }));
-
-        return updatedNotes.map(note => {
-          if (!note.hit && !note.missed && note.y > HIT_LINE_Y + HIT_TOLERANCE) {
-            setCombo(0);
-            return { ...note, missed: true };
-          }
-          return note;
-        }).filter(note => note.y < GAME_HEIGHT + 50);
-      });
-
-      // Update particles
-      setParticles(prev => {
-        return prev.map(particle => ({
-          ...particle,
-          x: particle.x + (particle.vx * deltaTime) / 1000,
-          y: particle.y + (particle.vy * deltaTime) / 1000,
-          life: particle.life - deltaTime / 1000,
-        })).filter(particle => particle.life > 0);
-      });
-
-      // Update accuracy
-      if (totalNotes > 0) {
-        setAccuracy(Math.round((hitNotes / totalNotes) * 100));
       }
+    });
+
+    // Update note positions
+    setNotes(prev => {
+      const updatedNotes = prev.map(note => ({
+        ...note,
+        y: note.y + (NOTE_SPEED * 16) / 1000 // Assuming 60fps
+      }));
+
+      return updatedNotes.map(note => {
+        if (!note.hit && !note.missed && note.y > HIT_LINE_Y + HIT_TOLERANCE) {
+          setCombo(0);
+          return { ...note, missed: true };
+        }
+        return note;
+      }).filter(note => note.y < GAME_HEIGHT + 50);
+    });
+
+    // Update particles
+    setParticles(prev => {
+      return prev.map(particle => ({
+        ...particle,
+        x: particle.x + (particle.vx * 16) / 1000,
+        y: particle.y + (particle.vy * 16) / 1000,
+        life: particle.life - 16 / 1000,
+      })).filter(particle => particle.life > 0);
+    });
+
+    // Update accuracy
+    if (totalNotes > 0) {
+      setAccuracy(Math.round((hitNotes / totalNotes) * 100));
     }
 
     animationRef.current = requestAnimationFrame(gameLoop);
-  }, [isPlaying, totalNotes, hitNotes, spawnNote, NOTE_SPEED, HIT_LINE_Y, HIT_TOLERANCE, GAME_HEIGHT, notePattern]);
+  }, [isPlaying, totalNotes, hitNotes, NOTE_SPEED, HIT_LINE_Y, HIT_TOLERANCE, GAME_HEIGHT, notePattern]);
 
   useEffect(() => {
-    lastTimeRef.current = performance.now();
     animationRef.current = requestAnimationFrame(gameLoop);
     
     return () => {
@@ -214,10 +208,16 @@ const RhythmGame: React.FC = () => {
   }, [gameLoop]);
 
   const startGame = () => {
+    console.log('Starting game...');
     setIsPlaying(true);
     setGameTime(0);
-    spawnedNotesRef.current.clear();
-    lastTimeRef.current = performance.now();
+    gameStartTimeRef.current = performance.now();
+    
+    // Spawn a test note immediately to verify rendering
+    setTimeout(() => {
+      spawnNote(0);
+      spawnNote(2);
+    }, 100);
   };
 
   const pauseGame = () => {
@@ -225,6 +225,7 @@ const RhythmGame: React.FC = () => {
   };
 
   const resetGame = () => {
+    console.log('Resetting game...');
     setIsPlaying(false);
     setNotes([]);
     setParticles([]);
@@ -235,7 +236,7 @@ const RhythmGame: React.FC = () => {
     setTotalNotes(0);
     setHitNotes(0);
     setGameTime(0);
-    spawnedNotesRef.current.clear();
+    gameStartTimeRef.current = 0;
   };
 
   return (
@@ -269,10 +270,19 @@ const RhythmGame: React.FC = () => {
           </div>
         </div>
 
+        {/* Debug Info */}
+        <div className="bg-black/20 backdrop-blur-sm rounded-lg p-2 mb-4 text-center">
+          <div className="text-white/70 text-xs">
+            Playing: {isPlaying ? 'Yes' : 'No'} | 
+            Time: {(gameTime / 1000).toFixed(1)}s | 
+            Notes: {notes.length}
+          </div>
+        </div>
+
         {/* Game Area */}
         <div 
           ref={gameRef}
-          className="relative bg-black/20 backdrop-blur-sm rounded-lg overflow-hidden"
+          className="relative bg-black/20 backdrop-blur-sm rounded-lg overflow-hidden border-2 border-white/20"
           style={{ height: GAME_HEIGHT }}
         >
           {/* Lanes */}
@@ -280,7 +290,7 @@ const RhythmGame: React.FC = () => {
             {Array.from({ length: LANES }).map((_, index) => (
               <div
                 key={index}
-                className="flex-1 border-r border-white/20 last:border-r-0 relative cursor-pointer"
+                className="flex-1 border-r border-white/20 last:border-r-0 relative cursor-pointer hover:bg-white/5"
                 onTouchStart={(e) => {
                   e.preventDefault();
                   handleLaneTouch(index);
@@ -296,7 +306,7 @@ const RhythmGame: React.FC = () => {
 
           {/* Hit Line */}
           <div 
-            className="absolute left-0 right-0 h-1 bg-gradient-to-r from-pink-500 to-purple-500 shadow-lg shadow-pink-500/50"
+            className="absolute left-0 right-0 h-2 bg-gradient-to-r from-pink-500 to-purple-500 shadow-lg shadow-pink-500/50 z-10"
             style={{ top: HIT_LINE_Y }}
           >
             <div className="absolute inset-0 bg-gradient-to-r from-pink-400 to-purple-400 animate-pulse" />
@@ -306,20 +316,23 @@ const RhythmGame: React.FC = () => {
           {notes.map(note => (
             <div
               key={note.id}
-              className={`absolute w-12 h-8 rounded-lg shadow-lg transition-all duration-75 ${
+              className={`absolute w-16 h-12 rounded-lg shadow-lg transition-all duration-75 z-20 ${
                 note.hit 
                   ? 'bg-green-400 scale-125' 
                   : note.missed 
                     ? 'bg-red-400 opacity-50' 
-                    : 'bg-gradient-to-b from-pink-400 to-purple-500'
+                    : 'bg-gradient-to-b from-pink-400 to-purple-500 border-2 border-white/30'
               }`}
               style={{
-                left: `${(note.lane * (100 / LANES)) + (100 / LANES / 2) - 6}%`,
+                left: `${(note.lane * (100 / LANES)) + (100 / LANES / 2)}%`,
                 top: note.y,
                 transform: 'translateX(-50%)',
               }}
             >
               <div className="absolute inset-0 bg-white/20 rounded-lg" />
+              <div className="absolute inset-0 flex items-center justify-center text-white font-bold text-xs">
+                {note.lane + 1}
+              </div>
             </div>
           ))}
 
@@ -327,7 +340,7 @@ const RhythmGame: React.FC = () => {
           {particles.map(particle => (
             <div
               key={particle.id}
-              className="absolute w-2 h-2 bg-white rounded-full"
+              className="absolute w-2 h-2 bg-white rounded-full z-30"
               style={{
                 left: particle.x,
                 top: particle.y,
@@ -337,14 +350,14 @@ const RhythmGame: React.FC = () => {
           ))}
 
           {/* Lane indicators at bottom */}
-          <div className="absolute bottom-0 left-0 right-0 h-16 flex">
+          <div className="absolute bottom-0 left-0 right-0 h-16 flex z-10">
             {Array.from({ length: LANES }).map((_, index) => (
               <div
                 key={index}
                 className="flex-1 border-r border-white/20 last:border-r-0 flex items-center justify-center"
               >
-                <div className="w-8 h-8 rounded-full bg-white/20 flex items-center justify-center">
-                  <div className="w-4 h-4 rounded-full bg-white/40" />
+                <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center border-2 border-white/30">
+                  <div className="text-white font-bold text-sm">{index + 1}</div>
                 </div>
               </div>
             ))}
@@ -383,11 +396,6 @@ const RhythmGame: React.FC = () => {
           <div className="text-white/70 text-sm">
             Max Combo: {maxCombo} | Notes Hit: {hitNotes}/{totalNotes}
           </div>
-          {isPlaying && (
-            <div className="text-white/50 text-xs mt-1">
-              Game Time: {(gameTime / 1000).toFixed(1)}s
-            </div>
-          )}
         </div>
       </div>
     </div>
