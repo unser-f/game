@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Play, Pause, RotateCcw, Heart } from 'lucide-react';
+import { Play, Pause, RotateCcw, Heart, Volume2 } from 'lucide-react';
 
 interface Note {
   id: string;
@@ -7,6 +7,7 @@ interface Note {
   y: number;
   hit: boolean;
   missed: boolean;
+  frequency: number; // Add frequency for audio
 }
 
 interface Particle {
@@ -31,41 +32,134 @@ const RhythmGame: React.FC = () => {
   const [isPlaying, setIsPlaying] = useState(false);
   const [gameTime, setGameTime] = useState(0);
   const [showHitEffect, setShowHitEffect] = useState<number | null>(null);
+  const [audioEnabled, setAudioEnabled] = useState(true);
 
   const gameRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number>();
   const gameStartTimeRef = useRef<number>(0);
+  const audioContextRef = useRef<AudioContext | null>(null);
 
   const LANES = 4;
-  const NOTE_SPEED = 300; // Increased speed for visibility
+  const NOTE_SPEED = 300;
   const HIT_LINE_Y = 520;
   const HIT_TOLERANCE = 50;
   const GAME_HEIGHT = 600;
 
-  // Simplified note pattern for testing
+  // Musical frequencies for "Can't Help Falling in Love" melody
+  // Using C major scale: C4, D4, E4, F4, G4, A4, B4, C5
+  const frequencies = {
+    C4: 261.63,
+    D4: 293.66,
+    E4: 329.63,
+    F4: 349.23,
+    G4: 392.00,
+    A4: 440.00,
+    B4: 493.88,
+    C5: 523.25
+  };
+
+  // Melody pattern for "Can't Help Falling in Love"
+  // Simplified version of the main melody
   const notePattern = [
-    { time: 1000, lane: 0 },
-    { time: 2000, lane: 1 },
-    { time: 3000, lane: 2 },
-    { time: 4000, lane: 3 },
-    { time: 5000, lane: 0 },
-    { time: 6000, lane: 1 },
-    { time: 7000, lane: 2 },
-    { time: 8000, lane: 3 },
-    { time: 9000, lane: 0 },
-    { time: 10000, lane: 1 },
+    { time: 1000, lane: 0, frequency: frequencies.C4 }, // "Wise"
+    { time: 2000, lane: 1, frequency: frequencies.E4 }, // "men"
+    { time: 3000, lane: 2, frequency: frequencies.G4 }, // "say"
+    { time: 4000, lane: 3, frequency: frequencies.C5 }, // "only"
+    { time: 5000, lane: 0, frequency: frequencies.B4 }, // "fools"
+    { time: 6000, lane: 1, frequency: frequencies.A4 }, // "rush"
+    { time: 7000, lane: 2, frequency: frequencies.G4 }, // "in"
+    { time: 8000, lane: 3, frequency: frequencies.F4 }, // "but"
+    { time: 9000, lane: 0, frequency: frequencies.E4 }, // "I"
+    { time: 10000, lane: 1, frequency: frequencies.D4 }, // "can't"
+    { time: 11000, lane: 2, frequency: frequencies.C4 }, // "help"
+    { time: 12000, lane: 3, frequency: frequencies.G4 }, // "falling"
+    { time: 13000, lane: 0, frequency: frequencies.C5 }, // "in"
+    { time: 14000, lane: 1, frequency: frequencies.G4 }, // "love"
+    { time: 15000, lane: 2, frequency: frequencies.E4 }, // "with"
+    { time: 16000, lane: 3, frequency: frequencies.C4 }, // "you"
   ];
 
-  const spawnNote = useCallback((lane: number) => {
+  // Initialize audio context
+  useEffect(() => {
+    if (audioEnabled && !audioContextRef.current) {
+      try {
+        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      } catch (error) {
+        console.warn('Web Audio API not supported:', error);
+        setAudioEnabled(false);
+      }
+    }
+  }, [audioEnabled]);
+
+  // Play musical note
+  const playNote = useCallback((frequency: number, duration: number = 0.5) => {
+    if (!audioEnabled || !audioContextRef.current) return;
+
+    try {
+      const audioContext = audioContextRef.current;
+      
+      // Resume audio context if suspended (required for user interaction)
+      if (audioContext.state === 'suspended') {
+        audioContext.resume();
+      }
+
+      // Create oscillator for the main tone
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+      
+      // Connect nodes
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+      
+      // Set frequency and waveform
+      oscillator.frequency.setValueAtTime(frequency, audioContext.currentTime);
+      oscillator.type = 'sine'; // Smooth, pleasant tone
+      
+      // Create envelope (attack, decay, sustain, release)
+      const now = audioContext.currentTime;
+      gainNode.gain.setValueAtTime(0, now);
+      gainNode.gain.linearRampToValueAtTime(0.3, now + 0.05); // Attack
+      gainNode.gain.exponentialRampToValueAtTime(0.2, now + 0.1); // Decay
+      gainNode.gain.setValueAtTime(0.2, now + duration - 0.1); // Sustain
+      gainNode.gain.exponentialRampToValueAtTime(0.01, now + duration); // Release
+      
+      // Start and stop
+      oscillator.start(now);
+      oscillator.stop(now + duration);
+
+      // Add some harmonic richness with a subtle second oscillator
+      const harmonic = audioContext.createOscillator();
+      const harmonicGain = audioContext.createGain();
+      
+      harmonic.connect(harmonicGain);
+      harmonicGain.connect(audioContext.destination);
+      
+      harmonic.frequency.setValueAtTime(frequency * 2, now); // Octave higher
+      harmonic.type = 'sine';
+      
+      harmonicGain.gain.setValueAtTime(0, now);
+      harmonicGain.gain.linearRampToValueAtTime(0.05, now + 0.05);
+      harmonicGain.gain.exponentialRampToValueAtTime(0.01, now + duration);
+      
+      harmonic.start(now);
+      harmonic.stop(now + duration);
+      
+    } catch (error) {
+      console.warn('Error playing note:', error);
+    }
+  }, [audioEnabled]);
+
+  const spawnNote = useCallback((lane: number, frequency: number) => {
     const newNote: Note = {
       id: `note-${Date.now()}-${Math.random()}`,
       lane,
       y: -50,
       hit: false,
       missed: false,
+      frequency,
     };
     setNotes(prev => {
-      console.log('Spawning note in lane:', lane, 'Total notes:', prev.length + 1);
+      console.log('Spawning note in lane:', lane, 'frequency:', frequency, 'Total notes:', prev.length + 1);
       return [...prev, newNote];
     });
     setTotalNotes(prev => prev + 1);
@@ -73,13 +167,13 @@ const RhythmGame: React.FC = () => {
 
   const createParticles = useCallback((x: number, y: number) => {
     const newParticles: Particle[] = [];
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 15; i++) {
       newParticles.push({
         id: `particle-${Date.now()}-${i}`,
         x,
         y,
-        vx: (Math.random() - 0.5) * 200,
-        vy: (Math.random() - 0.5) * 200,
+        vx: (Math.random() - 0.5) * 300,
+        vy: (Math.random() - 0.5) * 300,
         life: 1,
         maxLife: 1,
       });
@@ -98,8 +192,13 @@ const RhythmGame: React.FC = () => {
       );
 
       if (noteIndex >= 0) {
+        const hitNote = updatedNotes[noteIndex];
         updatedNotes[noteIndex].hit = true;
-        const hitDistance = Math.abs(updatedNotes[noteIndex].y - HIT_LINE_Y);
+        
+        // Play the musical note!
+        playNote(hitNote.frequency, 0.6);
+        
+        const hitDistance = Math.abs(hitNote.y - HIT_LINE_Y);
         let points = 100;
         
         if (hitDistance <= 20) points = 300;
@@ -114,16 +213,16 @@ const RhythmGame: React.FC = () => {
         });
         setHitNotes(prev => prev + 1);
         setShowHitEffect(lane);
-        setTimeout(() => setShowHitEffect(null), 200);
+        setTimeout(() => setShowHitEffect(null), 300);
 
         const laneX = (lane * (100 / LANES)) + (100 / LANES / 2);
         createParticles((laneX / 100) * (gameRef.current?.clientWidth || 400), HIT_LINE_Y);
 
-        return updatedNotes.filter(note => note.id !== updatedNotes[noteIndex].id);
+        return updatedNotes.filter(note => note.id !== hitNote.id);
       }
       return updatedNotes;
     });
-  }, [combo, LANES, HIT_LINE_Y, HIT_TOLERANCE, createParticles]);
+  }, [combo, LANES, HIT_LINE_Y, HIT_TOLERANCE, createParticles, playNote]);
 
   const handleLaneTouch = useCallback((lane: number) => {
     hitNote(lane);
@@ -140,8 +239,7 @@ const RhythmGame: React.FC = () => {
 
     // Spawn notes based on pattern
     notePattern.forEach((pattern) => {
-      if (Math.abs(elapsedTime - pattern.time) < 50) { // 50ms tolerance for spawning
-        // Check if we haven't spawned this note yet
+      if (Math.abs(elapsedTime - pattern.time) < 50) {
         setNotes(prev => {
           const alreadyExists = prev.some(note => 
             Math.abs(note.y - (-50)) < 10 && note.lane === pattern.lane
@@ -153,8 +251,9 @@ const RhythmGame: React.FC = () => {
               y: -50,
               hit: false,
               missed: false,
+              frequency: pattern.frequency,
             };
-            console.log('Spawning note at time:', elapsedTime, 'lane:', pattern.lane);
+            console.log('Spawning note at time:', elapsedTime, 'lane:', pattern.lane, 'frequency:', pattern.frequency);
             setTotalNotes(prev => prev + 1);
             return [...prev, newNote];
           }
@@ -167,7 +266,7 @@ const RhythmGame: React.FC = () => {
     setNotes(prev => {
       const updatedNotes = prev.map(note => ({
         ...note,
-        y: note.y + (NOTE_SPEED * 16) / 1000 // Assuming 60fps
+        y: note.y + (NOTE_SPEED * 16) / 1000
       }));
 
       return updatedNotes.map(note => {
@@ -213,10 +312,15 @@ const RhythmGame: React.FC = () => {
     setGameTime(0);
     gameStartTimeRef.current = performance.now();
     
-    // Spawn a test note immediately to verify rendering
+    // Initialize audio context on user interaction
+    if (audioEnabled && audioContextRef.current?.state === 'suspended') {
+      audioContextRef.current.resume();
+    }
+    
+    // Spawn test notes immediately
     setTimeout(() => {
-      spawnNote(0);
-      spawnNote(2);
+      spawnNote(0, frequencies.C4);
+      spawnNote(2, frequencies.G4);
     }, 100);
   };
 
@@ -239,6 +343,10 @@ const RhythmGame: React.FC = () => {
     gameStartTimeRef.current = 0;
   };
 
+  const toggleAudio = () => {
+    setAudioEnabled(prev => !prev);
+  };
+
   return (
     <div className="flex flex-col items-center justify-center p-4 min-h-screen">
       <div className="w-full max-w-md mx-auto">
@@ -250,6 +358,22 @@ const RhythmGame: React.FC = () => {
             <Heart className="w-8 h-8 text-pink-400" />
           </div>
           <p className="text-pink-200">in Love with You</p>
+          <p className="text-pink-300/70 text-sm mt-1">Hit the notes to play the melody!</p>
+        </div>
+
+        {/* Audio Toggle */}
+        <div className="flex justify-center mb-4">
+          <button
+            onClick={toggleAudio}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg font-semibold transition-colors ${
+              audioEnabled 
+                ? 'bg-green-600 hover:bg-green-700 text-white' 
+                : 'bg-gray-600 hover:bg-gray-700 text-white'
+            }`}
+          >
+            <Volume2 className="w-4 h-4" />
+            Audio: {audioEnabled ? 'ON' : 'OFF'}
+          </button>
         </div>
 
         {/* Score Display */}
@@ -275,7 +399,8 @@ const RhythmGame: React.FC = () => {
           <div className="text-white/70 text-xs">
             Playing: {isPlaying ? 'Yes' : 'No'} | 
             Time: {(gameTime / 1000).toFixed(1)}s | 
-            Notes: {notes.length}
+            Notes: {notes.length} |
+            Audio: {audioEnabled ? 'ON' : 'OFF'}
           </div>
         </div>
 
@@ -290,7 +415,7 @@ const RhythmGame: React.FC = () => {
             {Array.from({ length: LANES }).map((_, index) => (
               <div
                 key={index}
-                className="flex-1 border-r border-white/20 last:border-r-0 relative cursor-pointer hover:bg-white/5"
+                className="flex-1 border-r border-white/20 last:border-r-0 relative cursor-pointer hover:bg-white/5 transition-colors"
                 onTouchStart={(e) => {
                   e.preventDefault();
                   handleLaneTouch(index);
@@ -298,7 +423,7 @@ const RhythmGame: React.FC = () => {
                 onClick={() => handleLaneTouch(index)}
               >
                 {showHitEffect === index && (
-                  <div className="absolute bottom-16 left-1/2 transform -translate-x-1/2 w-8 h-8 bg-white/50 rounded-full animate-ping" />
+                  <div className="absolute bottom-16 left-1/2 transform -translate-x-1/2 w-12 h-12 bg-gradient-to-r from-pink-400 to-purple-400 rounded-full animate-ping opacity-75" />
                 )}
               </div>
             ))}
@@ -318,10 +443,10 @@ const RhythmGame: React.FC = () => {
               key={note.id}
               className={`absolute w-16 h-12 rounded-lg shadow-lg transition-all duration-75 z-20 ${
                 note.hit 
-                  ? 'bg-green-400 scale-125' 
+                  ? 'bg-gradient-to-b from-green-400 to-green-600 scale-125 shadow-green-400/50' 
                   : note.missed 
-                    ? 'bg-red-400 opacity-50' 
-                    : 'bg-gradient-to-b from-pink-400 to-purple-500 border-2 border-white/30'
+                    ? 'bg-gradient-to-b from-red-400 to-red-600 opacity-50' 
+                    : 'bg-gradient-to-b from-pink-400 to-purple-500 border-2 border-white/30 shadow-pink-400/30'
               }`}
               style={{
                 left: `${(note.lane * (100 / LANES)) + (100 / LANES / 2)}%`,
@@ -331,7 +456,7 @@ const RhythmGame: React.FC = () => {
             >
               <div className="absolute inset-0 bg-white/20 rounded-lg" />
               <div className="absolute inset-0 flex items-center justify-center text-white font-bold text-xs">
-                {note.lane + 1}
+                ♪
               </div>
             </div>
           ))}
@@ -340,7 +465,7 @@ const RhythmGame: React.FC = () => {
           {particles.map(particle => (
             <div
               key={particle.id}
-              className="absolute w-2 h-2 bg-white rounded-full z-30"
+              className="absolute w-2 h-2 bg-gradient-to-r from-pink-400 to-purple-400 rounded-full z-30"
               style={{
                 left: particle.x,
                 top: particle.y,
@@ -391,10 +516,13 @@ const RhythmGame: React.FC = () => {
           </button>
         </div>
 
-        {/* Stats */}
+        {/* Instructions */}
         <div className="mt-6 text-center">
-          <div className="text-white/70 text-sm">
+          <div className="text-white/70 text-sm mb-2">
             Max Combo: {maxCombo} | Notes Hit: {hitNotes}/{totalNotes}
+          </div>
+          <div className="text-pink-200/70 text-xs">
+            Click or tap the lanes when notes reach the glowing line to play the melody!
           </div>
         </div>
       </div>
