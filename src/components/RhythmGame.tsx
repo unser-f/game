@@ -35,7 +35,7 @@ const RhythmGame: React.FC = () => {
   const gameRef = useRef<HTMLDivElement>(null);
   const animationRef = useRef<number>();
   const lastTimeRef = useRef<number>(0);
-  const nextNoteTimeRef = useRef<number>(0);
+  const spawnedNotesRef = useRef<Set<number>>(new Set());
 
   const LANES = 4;
   const NOTE_SPEED = 200;
@@ -44,38 +44,38 @@ const RhythmGame: React.FC = () => {
   const GAME_HEIGHT = 600;
 
   const notePattern = [
-    { time: 1000, lane: 0 },
-    { time: 1500, lane: 2 },
-    { time: 2000, lane: 1 },
-    { time: 2500, lane: 3 },
-    { time: 3000, lane: 0 },
-    { time: 3200, lane: 1 },
-    { time: 3500, lane: 2 },
-    { time: 4000, lane: 3 },
-    { time: 4500, lane: 1 },
-    { time: 5000, lane: 0 },
-    { time: 5200, lane: 2 },
-    { time: 5500, lane: 3 },
-    { time: 6000, lane: 1 },
-    { time: 6500, lane: 0 },
-    { time: 7000, lane: 2 },
-    { time: 7500, lane: 3 },
-    { time: 8000, lane: 1 },
-    { time: 8200, lane: 0 },
-    { time: 8500, lane: 2 },
-    { time: 9000, lane: 3 },
-    { time: 9500, lane: 1 },
-    { time: 10000, lane: 0 },
-    { time: 10500, lane: 2 },
+    { time: 500, lane: 0 },
+    { time: 1000, lane: 2 },
+    { time: 1500, lane: 1 },
+    { time: 2000, lane: 3 },
+    { time: 2500, lane: 0 },
+    { time: 2800, lane: 1 },
+    { time: 3200, lane: 2 },
+    { time: 3600, lane: 3 },
+    { time: 4000, lane: 1 },
+    { time: 4400, lane: 0 },
+    { time: 4600, lane: 2 },
+    { time: 5000, lane: 3 },
+    { time: 5400, lane: 1 },
+    { time: 5800, lane: 0 },
+    { time: 6200, lane: 2 },
+    { time: 6600, lane: 3 },
+    { time: 7000, lane: 1 },
+    { time: 7200, lane: 0 },
+    { time: 7500, lane: 2 },
+    { time: 7800, lane: 3 },
+    { time: 8200, lane: 1 },
+    { time: 8600, lane: 0 },
+    { time: 9000, lane: 2 },
+    { time: 9400, lane: 3 },
+    { time: 9800, lane: 1 },
+    { time: 10200, lane: 0 },
+    { time: 10600, lane: 2 },
     { time: 11000, lane: 3 },
-    { time: 11500, lane: 1 },
-    { time: 12000, lane: 0 },
-    { time: 12500, lane: 2 },
-    { time: 13000, lane: 3 },
-    { time: 13500, lane: 1 },
-    { time: 14000, lane: 0 },
-    { time: 14500, lane: 2 },
-    { time: 15000, lane: 3 },
+    { time: 11400, lane: 1 },
+    { time: 11800, lane: 0 },
+    { time: 12200, lane: 2 },
+    { time: 12600, lane: 3 },
   ];
 
   const spawnNote = useCallback((lane: number) => {
@@ -156,20 +156,18 @@ const RhythmGame: React.FC = () => {
       setGameTime(prev => {
         const newTime = prev + deltaTime;
         
-        const upcomingNotes = notePattern.filter(
-          pattern => pattern.time <= newTime && pattern.time > newTime - 100
-        );
-        
-        upcomingNotes.forEach(pattern => {
-          if (pattern.time >= nextNoteTimeRef.current) {
+        // Check for notes to spawn
+        notePattern.forEach((pattern, index) => {
+          if (pattern.time <= newTime && !spawnedNotesRef.current.has(index)) {
             spawnNote(pattern.lane);
-            nextNoteTimeRef.current = pattern.time + 50;
+            spawnedNotesRef.current.add(index);
           }
         });
 
         return newTime;
       });
 
+      // Update note positions
       setNotes(prev => {
         const updatedNotes = prev.map(note => ({
           ...note,
@@ -185,6 +183,7 @@ const RhythmGame: React.FC = () => {
         }).filter(note => note.y < GAME_HEIGHT + 50);
       });
 
+      // Update particles
       setParticles(prev => {
         return prev.map(particle => ({
           ...particle,
@@ -194,13 +193,14 @@ const RhythmGame: React.FC = () => {
         })).filter(particle => particle.life > 0);
       });
 
+      // Update accuracy
       if (totalNotes > 0) {
         setAccuracy(Math.round((hitNotes / totalNotes) * 100));
       }
     }
 
     animationRef.current = requestAnimationFrame(gameLoop);
-  }, [isPlaying, totalNotes, hitNotes, spawnNote, NOTE_SPEED, HIT_LINE_Y, HIT_TOLERANCE, GAME_HEIGHT]);
+  }, [isPlaying, totalNotes, hitNotes, spawnNote, NOTE_SPEED, HIT_LINE_Y, HIT_TOLERANCE, GAME_HEIGHT, notePattern]);
 
   useEffect(() => {
     lastTimeRef.current = performance.now();
@@ -216,7 +216,7 @@ const RhythmGame: React.FC = () => {
   const startGame = () => {
     setIsPlaying(true);
     setGameTime(0);
-    nextNoteTimeRef.current = 0;
+    spawnedNotesRef.current.clear();
     lastTimeRef.current = performance.now();
   };
 
@@ -235,7 +235,7 @@ const RhythmGame: React.FC = () => {
     setTotalNotes(0);
     setHitNotes(0);
     setGameTime(0);
-    nextNoteTimeRef.current = 0;
+    spawnedNotesRef.current.clear();
   };
 
   return (
@@ -383,6 +383,11 @@ const RhythmGame: React.FC = () => {
           <div className="text-white/70 text-sm">
             Max Combo: {maxCombo} | Notes Hit: {hitNotes}/{totalNotes}
           </div>
+          {isPlaying && (
+            <div className="text-white/50 text-xs mt-1">
+              Game Time: {(gameTime / 1000).toFixed(1)}s
+            </div>
+          )}
         </div>
       </div>
     </div>
